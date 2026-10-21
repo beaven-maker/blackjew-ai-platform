@@ -15,3 +15,11 @@
   header nav#primaryNav a:last-child{border-bottom:0}
 }
 @media(prefers-reduced-motion:reduce){.menu-toggle span{transition:none}}
+
+/* Readable formatting for Blackjew AI replies */
+.chat .msg.bot .bot-content p{margin:0 0 10px;white-space:normal;overflow-wrap:anywhere}
+.chat .msg.bot .bot-content p:last-child{margin-bottom:0}
+.chat .msg.bot .bot-content ul{margin:6px 0 12px;padding-left:22px}
+.chat .msg.bot .bot-content li{margin:4px 0;overflow-wrap:anywhere}
+.chat .msg.bot .bot-content strong{font-weight:800;color:#092b59}
+.chat .msg.bot .bot-content em{font-style:italic}
