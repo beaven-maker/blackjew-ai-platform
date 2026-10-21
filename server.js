@@ -1,7 +1,7 @@
-
 import 'dotenv/config';
 import express from 'express';
 import OpenAI from 'openai';
+import nodemailer from 'nodemailer';
 import fs from 'fs';
 import path from 'path';
 
@@ -9,45 +9,38 @@ const app = express();
 app.use(express.json({ limit: '20kb' }));
 app.use(express.static('public'));
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Health check
+// Titan / GoDaddy SMTP configuration is kept in hosting environment variables.
+const smtpConfigured = Boolean(
+  process.env.SMTP_USER &&
+  process.env.SMTP_PASS &&
+  process.env.SMTP_HOST
+);
+
+const mailer = smtpConfigured ? nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 465),
+  secure: String(process.env.SMTP_SECURE || 'true') === 'true',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+}) : null;
+
 app.get('/api/health', (req, res) => {
-  res.json({
-    ok: true,
-    service: 'Blackjew AI',
-    status: 'running'
-  });
+  res.json({ ok: true, service: 'Blackjew AI', status: 'running' });
 });
 
-// AI assistant
 app.post('/api/chat', async (req, res) => {
   try {
     const message = String(req.body?.message || '').trim();
-
-    if (!message) {
-      return res.status(400).json({
-        reply: 'Please enter your question.'
-      });
-    }
-
-    if (message.length > 5000) {
-      return res.status(400).json({
-        reply: 'Please shorten your question and try again.'
-      });
-    }
+    if (!message) return res.status(400).json({ reply: 'Please enter your question.' });
+    if (message.length > 5000) return res.status(400).json({ reply: 'Please shorten your question and try again.' });
 
     const tools = [{ type: 'web_search' }];
-
     if (process.env.VECTOR_STORE_ID) {
-      tools.push({
-        type: 'file_search',
-        vector_store_ids: [
-          process.env.VECTOR_STORE_ID
-        ]
-      });
+      tools.push({ type: 'file_search', vector_store_ids: [process.env.VECTOR_STORE_ID] });
     }
 
     const r = await client.responses.create({
@@ -96,71 +89,78 @@ CUSTOMER EXPERIENCE
       input: message
     });
 
-    res.json({
-      reply: r.output_text ||
-        'I could not prepare an answer. Please try again.'
-    });
-
+    res.json({ reply: r.output_text || 'I could not prepare an answer. Please try again.' });
   } catch (error) {
-    console.error(
-      'Blackjew AI request failed:',
-      error.status || error.name || 'Unknown error'
-    );
-
-    res.status(500).json({
-      reply: 'The AI service is temporarily unavailable. Please contact Blackjew Consultants directly.'
-    });
+    console.error('Blackjew AI request failed:', error.status || error.name || 'Unknown error');
+    res.status(500).json({ reply: 'The AI service is temporarily unavailable. Please contact Blackjew Consultants directly.' });
   }
 });
 
-// Client enquiries
+// Client enquiries: save the submission and email the business inbox when SMTP is configured.
 app.post('/api/enquiry', async (req, res) => {
   try {
     const d = req.body || {};
-
     const safe = {
-      name: String(d.name || '').slice(0, 120),
-      company: String(d.company || '').slice(0, 160),
-      email: String(d.email || '').slice(0, 180),
-      phone: String(d.phone || '').slice(0, 80),
-      country: String(d.country || '').slice(0, 80),
-      service: String(d.service || '').slice(0, 100),
-      message: String(d.message || '').slice(0, 3000),
-      preferred: String(d.preferred || '').slice(0, 50),
+      name: String(d.name || '').trim().slice(0, 120),
+      company: String(d.company || '').trim().slice(0, 160),
+      email: String(d.email || '').trim().slice(0, 180),
+      phone: String(d.phone || '').trim().slice(0, 80),
+      country: String(d.country || '').trim().slice(0, 80),
+      service: String(d.service || '').trim().slice(0, 100),
+      message: String(d.message || '').trim().slice(0, 3000),
+      preferred: String(d.preferred || 'Email').trim().slice(0, 50),
       created_at: new Date().toISOString()
     };
 
-    if (
-      !safe.name ||
-      !safe.email ||
-      !safe.country ||
-      !safe.service ||
-      !safe.message
-    ) {
-      return res.status(400).json({ ok: false });
+    if (!safe.name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(safe.email) ||
+        !safe.country || !safe.service || !safe.message) {
+      return res.status(400).json({ ok: false, message: 'Please complete the required fields with a valid email address.' });
     }
 
     fs.mkdirSync('data', { recursive: true });
-
-    fs.appendFileSync(
-      path.join('data', 'enquiries.jsonl'),
-      JSON.stringify(safe) + '\n'
-    );
-
-    // Avoid logging visitors' personal details.
+    fs.appendFileSync(path.join('data', 'enquiries.jsonl'), JSON.stringify(safe) + '\n');
     console.log('New client enquiry received.');
 
-    res.json({ ok: true });
+    if (!mailer) {
+      console.error('Enquiry email not sent: SMTP environment settings are missing.');
+      return res.json({ ok: true, emailSent: false });
+    }
 
+    try {
+      const to = process.env.ENQUIRY_TO || process.env.SMTP_USER;
+      const from = process.env.MAIL_FROM || process.env.SMTP_USER;
+      await mailer.sendMail({
+        from: { name: 'Blackjew Consultants Website', address: from },
+        to,
+        replyTo: safe.email,
+        subject: 'New website enquiry — ' + safe.service,
+        text: [
+          'A new enquiry was submitted on the Blackjew Consultants website.',
+          '',
+          'Name: ' + safe.name,
+          'Business / Company: ' + (safe.company || 'Not provided'),
+          'Email: ' + safe.email,
+          'Phone / WhatsApp: ' + (safe.phone || 'Not provided'),
+          'Country: ' + safe.country,
+          'Service: ' + safe.service,
+          'Preferred contact method: ' + safe.preferred,
+          '',
+          'Enquiry:',
+          safe.message,
+          '',
+          'Received: ' + safe.created_at
+        ].join('\n')
+      });
+      console.log('Website enquiry email accepted by SMTP service.');
+      return res.json({ ok: true, emailSent: true });
+    } catch (mailError) {
+      console.error('Enquiry saved, but SMTP email delivery failed:', mailError.code || mailError.name || 'Unknown mail error');
+      return res.json({ ok: true, emailSent: false });
+    }
   } catch (error) {
     console.error('Enquiry submission failed.');
-
     res.status(500).json({ ok: false });
   }
 });
 
-app.listen(
-  process.env.PORT || 3000,
-  '0.0.0.0',
-  () => console.log('Blackjew AI V4 running')
-);
+app.listen(process.env.PORT || 3000, '0.0.0.0', () => console.log('Blackjew AI V4 running'));
