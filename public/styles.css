@@ -23,3 +23,11 @@
 .chat .msg.bot .bot-content li{margin:4px 0;overflow-wrap:anywhere}
 .chat .msg.bot .bot-content strong{font-weight:800;color:#092b59}
 .chat .msg.bot .bot-content em{font-style:italic}
+
+
+/* Final mobile polish for AI responses */
+.chat .msg.bot{max-width:96%;overflow-wrap:break-word;word-break:normal}
+.chat .msg.bot .bot-content p{overflow-wrap:break-word;word-break:normal}
+.chat .msg.bot .bot-content ol{margin:6px 0 12px;padding-left:24px}
+.chat .msg.bot .bot-content ul{margin:6px 0 12px;padding-left:22px}
+.chat .msg.bot .bot-content li{padding-left:2px;margin:6px 0;overflow-wrap:break-word;word-break:normal}
