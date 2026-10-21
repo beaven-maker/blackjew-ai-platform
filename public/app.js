@@ -181,12 +181,13 @@ lead.onsubmit = async e => {
     const x = await r.json();
 
     if (x.ok) {
-      result.className = 'success';
-      result.textContent =
-        'Thank you. Your enquiry has been prepared for Blackjew Consultants. We will contact you using your preferred method.';
+      result.className = x.emailSent ? 'success' : 'error';
+      result.textContent = x.emailSent
+        ? 'Thank you. Your enquiry has been emailed to Blackjew Consultants. We will contact you using your preferred method.'
+        : 'Your enquiry was recorded, but the email notification could not be confirmed. Please contact us directly by email or WhatsApp.';
       lead.reset();
     } else {
-      throw Error('Enquiry submission failed');
+      throw Error(x.message || 'Enquiry submission failed');
     }
   } catch (e) {
     result.className = 'error';
