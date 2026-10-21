@@ -1,5 +1,166 @@
-import 'dotenv/config';import express from 'express';import OpenAI from 'openai';import fs from 'fs';import path from 'path';
-const app=express();app.use(express.json());app.use(express.static('public'));const client=new OpenAI({apiKey:process.env.OPENAI_API_KEY});
-app.post('/api/chat',async(req,res)=>{try{const message=String(req.body.message||'').slice(0,5000);const tools=[{type:'web_search'}];if(process.env.VECTOR_STORE_ID)tools.push({type:'file_search',vector_store_ids:[process.env.VECTOR_STORE_ID]});const r=await client.responses.create({model:process.env.OPENAI_MODEL||'gpt-5.6',tools,instructions:"You are Blackjew AI, the virtual assistant for Blackjew Consultants. Help website visitors understand services, clarify what they need, and choose a practical next step.\n\nVERIFIED COMPANY FACTS\n- Services: Company Registration & Business Set-Up; Website Design & Development; Information Technology; Taxation Support; Staff Recruitment; Outsourcing; Business Consulting.\n- The firm supports entrepreneurs, start-ups, SMEs, established businesses and organisations with practical, strategic, business-focused solutions.\n- Official email: blackjew@blackjewconsultants.co.za\n- South Africa WhatsApp: +27 64 533 9722 (https://wa.me/27645339722)\n- Zimbabwe WhatsApp: +263 781 603 972 (https://wa.me/263781603972)\n- Only provide these verified contact details. Never give another phone number.\n- Use the company knowledge base for further company-specific facts when available. If a company detail is not documented, say so; do not guess.\n\nHOW TO HELP\n1. Answer the visitor's actual question first. Be warm, professional, concise and practical. Usually use 60–120 words.\n2. Use short paragraphs; add bullets or headings only when useful. Avoid repetitive or decorative formatting.\n3. For service questions, explain the service in plain language and offer a sensible next step. Do not claim deliverables or scope unless documented.\n4. For enquiries, ask only the most important missing question, one at a time. Relevant details can include country, service, business stage, timeline, and goal. Avoid unnecessary data collection.\n5. For quotations, custom engagements or booking requests, guide visitors to the website enquiry form or verified contacts. Never invent fees, discounts, availability, turnaround times or payment terms.\n6. Ask which country applies when company registration, tax, employment, legal or compliance rules may depend on jurisdiction.\n7. For legal, tax, financial, employment and other regulated topics, provide general information only. Rules may change; recommend confirming with the relevant authority or qualified professional. Do not imply that you are a licensed adviser or making a formal determination.\n8. Use web search for current external facts when it materially helps. Prefer official government/regulator sources for rules. Distinguish external information from Blackjew company policy. If sources are unclear, disclose uncertainty. Never fabricate facts, links, sources or citations.\n9. Never promise business success, registration approval, tax savings, compliance, hiring results, or guaranteed outcomes.\n10. Never request passwords, API keys, banking/card details, identity document numbers, or confidential records. Do not repeat sensitive details visitors disclose; advise them to protect/remove them.\n11. For complaints, confidential matters, urgent issues or requests needing human judgement, recommend direct contact with Blackjew.\n12. Share contact details only when requested or useful. Put email and each WhatsApp number on separate lines.",input:messagee});res.json({reply:r.output_text})}catch(e){console.error(e);res.status(500).json({reply:'The AI service is temporarily unavailable. Please contact Blackjew Consultants directly.'})}});
-app.post('/api/enquiry',async(req,res)=>{try{const d=req.body;const safe={name:String(d.name||'').slice(0,120),company:String(d.company||'').slice(0,160),email:String(d.email||'').slice(0,180),phone:String(d.phone||'').slice(0,80),country:String(d.country||'').slice(0,80),service:String(d.service||'').slice(0,100),message:String(d.message||'').slice(0,3000),preferred:String(d.preferred||'').slice(0,50),created_at:new Date().toISOString()};if(!safe.name||!safe.email||!safe.country||!safe.service||!safe.message)return res.status(400).json({ok:false});fs.mkdirSync('data',{recursive:true});fs.appendFileSync(path.join('data','enquiries.jsonl'),JSON.stringify(safe)+'\n');console.log('NEW ENQUIRY',safe);res.json({ok:true})}catch(e){console.error(e);res.status(500).json({ok:false})}});
-app.listen(process.env.PORT||3000,'0.0.0.0',()=>console.log('Blackjew AI V4 running'));
+
+import 'dotenv/config';
+import express from 'express';
+import OpenAI from 'openai';
+import fs from 'fs';
+import path from 'path';
+
+const app = express();
+app.use(express.json({ limit: '20kb' }));
+app.use(express.static('public'));
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    service: 'Blackjew AI',
+    status: 'running'
+  });
+});
+
+// AI assistant
+app.post('/api/chat', async (req, res) => {
+  try {
+    const message = String(req.body?.message || '').trim();
+
+    if (!message) {
+      return res.status(400).json({
+        reply: 'Please enter your question.'
+      });
+    }
+
+    if (message.length > 5000) {
+      return res.status(400).json({
+        reply: 'Please shorten your question and try again.'
+      });
+    }
+
+    const tools = [{ type: 'web_search' }];
+
+    if (process.env.VECTOR_STORE_ID) {
+      tools.push({
+        type: 'file_search',
+        vector_store_ids: [
+          process.env.VECTOR_STORE_ID
+        ]
+      });
+    }
+
+    const r = await client.responses.create({
+      model: process.env.OPENAI_MODEL || 'gpt-5.6',
+      tools,
+      instructions: `You are Blackjew AI, the virtual assistant for Blackjew Consultants.
+
+Help website visitors understand services, clarify their needs and choose practical next steps.
+
+VERIFIED COMPANY FACTS
+- Company Registration & Business Set-Up
+- Website Design & Development
+- Information Technology
+- Taxation Support
+- Staff Recruitment
+- Outsourcing
+- Business Consulting
+- Supports entrepreneurs, start-ups, SMEs, established businesses and organisations.
+- Email: blackjew@blackjewconsultants.co.za
+- South Africa WhatsApp: +27 64 533 9722
+- South Africa WhatsApp link: https://wa.me/27645339722
+- Zimbabwe WhatsApp: +263 781 603 972
+- Zimbabwe WhatsApp link: https://wa.me/263781603972
+
+COMPANY ACCURACY
+Use documented company facts and the company knowledge base when available.
+Never invent company prices, qualifications, clients, partnerships, services or guarantees.
+Never invent contact details.
+
+CUSTOMER EXPERIENCE
+1. Answer the actual question first.
+2. Be warm, professional, clear and concise.
+3. Normally aim for 60-120 words.
+4. Explain services in plain language.
+5. Ask one important follow-up question at a time.
+6. For quotations, custom work or appointments, direct visitors to the website enquiry form or verified contacts.
+7. Ask which country applies when laws, tax, registration or employment rules depend on location.
+8. Use web search for current information when relevant. Prefer official government and regulator sources.
+9. Distinguish general external information from confirmed company policies.
+10. Never guarantee registration approvals, tax savings, compliance, business success or hiring outcomes.
+11. For legal, tax and other regulated matters, provide general information and recommend confirmation with an appropriate professional or authority.
+12. Never request passwords, API keys, card details, banking credentials or identity document numbers.
+13. For complaints, sensitive matters or matters requiring human judgement, recommend direct contact.
+14. Share verified contact details when useful.
+15. Never claim an enquiry has been sent to a human unless the system confirms it.`,
+      input: message
+    });
+
+    res.json({
+      reply: r.output_text ||
+        'I could not prepare an answer. Please try again.'
+    });
+
+  } catch (error) {
+    console.error(
+      'Blackjew AI request failed:',
+      error.status || error.name || 'Unknown error'
+    );
+
+    res.status(500).json({
+      reply: 'The AI service is temporarily unavailable. Please contact Blackjew Consultants directly.'
+    });
+  }
+});
+
+// Client enquiries
+app.post('/api/enquiry', async (req, res) => {
+  try {
+    const d = req.body || {};
+
+    const safe = {
+      name: String(d.name || '').slice(0, 120),
+      company: String(d.company || '').slice(0, 160),
+      email: String(d.email || '').slice(0, 180),
+      phone: String(d.phone || '').slice(0, 80),
+      country: String(d.country || '').slice(0, 80),
+      service: String(d.service || '').slice(0, 100),
+      message: String(d.message || '').slice(0, 3000),
+      preferred: String(d.preferred || '').slice(0, 50),
+      created_at: new Date().toISOString()
+    };
+
+    if (
+      !safe.name ||
+      !safe.email ||
+      !safe.country ||
+      !safe.service ||
+      !safe.message
+    ) {
+      return res.status(400).json({ ok: false });
+    }
+
+    fs.mkdirSync('data', { recursive: true });
+
+    fs.appendFileSync(
+      path.join('data', 'enquiries.jsonl'),
+      JSON.stringify(safe) + '\n'
+    );
+
+    // Avoid logging visitors' personal details.
+    console.log('New client enquiry received.');
+
+    res.json({ ok: true });
+
+  } catch (error) {
+    console.error('Enquiry submission failed.');
+
+    res.status(500).json({ ok: false });
+  }
+});
+
+app.listen(
+  process.env.PORT || 3000,
+  '0.0.0.0',
+  () => console.log('Blackjew AI V4 running')
+);
